@@ -27,15 +27,19 @@ RCT_EXPORT_MODULE();
 }
 
 
-RCT_EXPORT_METHOD(startScan)
+RCT_EXPORT_METHOD(startScan
+                    :(NSString *) receiverID)
 {
   RCTLogInfo(@"start scan chromecast!");
+  RCTLogInfo(@"%@", receiverID);
 
   self.currentDevices = [[NSMutableDictionary alloc] init];
+  self.receiverID = receiverID;
+
   // Initialize device scanner.
   dispatch_async(dispatch_get_main_queue(), ^{
     GCKFilterCriteria *filterCriteria =
-    [GCKFilterCriteria criteriaForAvailableApplicationWithID: kGCKMediaDefaultReceiverApplicationID];
+    [GCKFilterCriteria criteriaForAvailableApplicationWithID: receiverID];
     self.deviceScanner = [[GCKDeviceScanner alloc] initWithFilterCriteria:filterCriteria];
     [_deviceScanner addListener:self];
     [_deviceScanner startScan];
@@ -77,17 +81,21 @@ RCT_EXPORT_METHOD(connectToDevice:(NSString *)deviceId)
 
 RCT_EXPORT_METHOD(disconnect)
 {
-  if(self.deviceManager == nil) return;
+  if(_deviceManager == nil) return;
+
+  RCTLogInfo(@"disconnecting from app: %@", self.receiverID);
+
   dispatch_async(dispatch_get_main_queue(), ^{
-    [self.deviceManager disconnectWithLeave:YES];
+    [_deviceManager disconnectWithLeave: NO];
   });
 }
 
 RCT_EXPORT_METHOD(castMedia
-                  :(NSString *)mediaUrl
+                  :(NSString *) mediaUrl
                   :(NSString *) title
-                  :(NSString *)imageUrl
-                  :(double)seconds)
+                  :(NSString *) imageUrl
+                  :(double) seconds
+                  :(id) customData)
 {
   RCTLogInfo(@"casting media");
   seconds = !seconds ? 0 : seconds;
@@ -107,10 +115,25 @@ RCT_EXPORT_METHOD(castMedia
                                      contentType: @"video/mp4"
                                         metadata: metadata
                                   streamDuration: 0
-                                      customData: nil];
+                                      customData: customData];
 
   // Cast the video.
   [self.mediaControlChannel loadMedia:mediaInformation autoplay:YES playPosition: seconds];
+}
+
+RCT_EXPORT_METHOD(sendTextMessage :(NSString *) message)
+{
+  RCTLogInfo(@"sendTextMessage %@", message);
+
+  dispatch_async(dispatch_get_main_queue(), ^{
+    GCKError *messageSentError;
+    BOOL messageSent = [self.castChannel sendTextMessage: @"EXPLICIT_DISCONNECT"
+                        error: &messageSentError];
+
+    if (!messageSent) {
+      RCTLogInfo(@"%@", messageSentError);
+    }
+  });
 }
 
 RCT_EXPORT_METHOD(togglePauseCast)
@@ -146,7 +169,6 @@ RCT_REMAP_METHOD(getStreamPosition,
   resolve(@(time));
 }
 
-
 #pragma mark - GCKDeviceScannerListener
 - (void)deviceDidComeOnline:(GCKDevice *)device {
   NSLog(@"device found!! %@", device.friendlyName);
@@ -168,7 +190,8 @@ RCT_REMAP_METHOD(getStreamPosition,
 
 - (void)deviceManagerDidConnect:(GCKDeviceManager *)deviceManager {
   // Launch application after getting connected.
-  [_deviceManager launchApplication: kGCKMediaDefaultReceiverApplicationID];
+  RCTLogInfo(@"Custom Receiver ID: %@", self.receiverID);
+  [_deviceManager launchApplication: self.receiverID];
 }
 
 - (void)deviceManager:(GCKDeviceManager *)deviceManager didDisconnectWithError:(NSError *)error {
@@ -180,11 +203,15 @@ RCT_REMAP_METHOD(getStreamPosition,
                      :(GCKApplicationMetadata *)applicationMetadata
             sessionID:(NSString *)sessionID
   launchedApplication:(BOOL)launchedApplication {
-  
-  self.mediaControlChannel = [[GCKMediaControlChannel alloc] init];
-  self.mediaControlChannel.delegate = self;
-  [_deviceManager addChannel:self.mediaControlChannel];
-  
+    RCTLogInfo(@"didConnectToCastApplication");
+
+    self.castChannel = [[GCKCastChannel alloc] initWithNamespace: @"urn:x-cast:com.fandor.custom"];
+    [_deviceManager addChannel:self.castChannel];
+
+    self.mediaControlChannel = [[GCKMediaControlChannel alloc] init];
+    self.mediaControlChannel.delegate = self;
+    [_deviceManager addChannel:self.mediaControlChannel];
+
   //send message to react native
   [self emitMessageToRN:DEVICE_CONNECTED
                        :nil];
@@ -211,6 +238,4 @@ RCT_REMAP_METHOD(getStreamPosition,
   [self.bridge.eventDispatcher sendAppEventWithName: eventName
                                                body: params];
 }
-
-
 @end

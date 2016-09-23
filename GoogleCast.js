@@ -3,8 +3,8 @@ import {NativeModules} from 'react-native';
 const {GoogleCast} = NativeModules;
 
 export default {
-  startScan: function () {
-    GoogleCast.startScan();
+  startScan: function (googleCastReceiverID:string) {
+    GoogleCast.startScan(googleCastReceiverID);
   },
   stopScan: function () {
     GoogleCast.stopScan();
@@ -21,8 +21,8 @@ export default {
   disconnect: function(){
     GoogleCast.disconnect();
   },
-  castMedia: function (mediaUrl:string, title:string, imageUrl:string, seconds:number = 0) {
-    GoogleCast.castMedia(mediaUrl, title, imageUrl, seconds);
+  castMedia: function (mediaUrl:string, title:string, imageUrl:string, seconds:number = 0, customData:object = {}) {
+    GoogleCast.castMedia(mediaUrl, title, imageUrl, seconds, customData);
   },
   seekCast: function (seconds:number) {
     GoogleCast.seekCast(seconds);
@@ -32,6 +32,9 @@ export default {
   },
   getStreamPosition: function (){
     return GoogleCast.getStreamPosition();
+  },
+  sendTextMessage: function (message:string) {
+    GoogleCast.sendTextMessage(message);
   },
   DEVICE_CHANGED: GoogleCast.DEVICE_CHANGED,
   DEVICE_AVAILABLE: GoogleCast.DEVICE_AVAILABLE,
