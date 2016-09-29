@@ -127,7 +127,7 @@ RCT_EXPORT_METHOD(sendTextMessage :(NSString *) message)
 
   dispatch_async(dispatch_get_main_queue(), ^{
     GCKError *messageSentError;
-    BOOL messageSent = [self.castChannel sendTextMessage: @"EXPLICIT_DISCONNECT"
+    BOOL messageSent = [self.castChannel sendTextMessage: message
                         error: &messageSentError];
 
     if (!messageSent) {
@@ -205,12 +205,12 @@ RCT_REMAP_METHOD(getStreamPosition,
   launchedApplication:(BOOL)launchedApplication {
     RCTLogInfo(@"didConnectToCastApplication");
 
-    self.castChannel = [[GCKCastChannel alloc] initWithNamespace: @"urn:x-cast:com.fandor.custom"];
+    self.castChannel = [[GCKCastChannel alloc] initWithNamespace: @"urn:x-cast:com.google.cast.sample.helloworld"];
     [_deviceManager addChannel:self.castChannel];
 
-    self.mediaControlChannel = [[GCKMediaControlChannel alloc] init];
-    self.mediaControlChannel.delegate = self;
-    [_deviceManager addChannel:self.mediaControlChannel];
+    // self.mediaControlChannel = [[GCKMediaControlChannel alloc] init];
+    // self.mediaControlChannel.delegate = self;
+    // [_deviceManager addChannel:self.mediaControlChannel];
 
   //send message to react native
   [self emitMessageToRN:DEVICE_CONNECTED
