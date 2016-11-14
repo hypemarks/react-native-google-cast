@@ -151,9 +151,10 @@ RCT_REMAP_METHOD(getDevices,
                  reject:(RCTPromiseRejectBlock)reject)
 {
   NSMutableArray *devicesList = [[NSMutableArray alloc] init];
-  NSMutableDictionary *singleDevice= [[NSMutableDictionary alloc] init];
+  NSMutableDictionary *singleDevice;
   for (NSString *key in [self.currentDevices allKeys]) {
     GCKDevice *device = self.currentDevices[key];
+    singleDevice = [[NSMutableDictionary alloc] init];
     singleDevice[@"id"] = key;
     singleDevice[@"name"] = device.friendlyName;
     [devicesList addObject:singleDevice];
