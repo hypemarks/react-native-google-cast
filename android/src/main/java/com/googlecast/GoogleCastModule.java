@@ -48,7 +48,6 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
     private DataCastConsumer mDataCastConsumer;
     private String mDefaultNamespace = "urn:x-cast:com.google.cast.sample.helloworld";
     Map<String, RouteInfo> currentDevices = new HashMap<>();
-    private WritableMap deviceAvailableParams;
     private CastDevice mSelectedDevice;
     private MediaRouter mMediaRouter;
     private MediaRouteSelector mMediaRouteSelector;
@@ -133,12 +132,10 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
                 if(mCastManager != null) {
                     mCastManager.decrementUiCounter();
                     mCastManager.stopCastDiscovery();
-                    mCastManager.removeVideoCastConsumer(mCastConsumer);
                 }
                 if(mDataCastManager != null) {
                     mDataCastManager.decrementUiCounter();
                     mDataCastManager.stopCastDiscovery();
-                    mDataCastManager.removeDataCastConsumer(mDataCastConsumer);
 
                 }
                 if (mMediaRouter != null)
@@ -150,10 +147,10 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
     @ReactMethod
     public void getDevices(Promise promise) {
         WritableArray devicesList = Arguments.createArray();
-        WritableMap singleDevice = Arguments.createMap();
         try {
             Log.e(REACT_CLASS, "devices size " + currentDevices.size());
             for (RouteInfo existingChromecasts : currentDevices.values()) {
+                WritableMap singleDevice = Arguments.createMap();
                 singleDevice.putString("id", existingChromecasts.getId());
                 singleDevice.putString("name", existingChromecasts.getName());
                 devicesList.pushMap(singleDevice);
@@ -221,7 +218,6 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
                     e.printStackTrace();
                 }
                 finally {
-                    currentDevices.clear();
                     mCastManager =  null;
                     mDataCastManager = null;
                 }
@@ -310,7 +306,7 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
                         @Override
                         public void onCastDeviceDetected(RouteInfo info) {
                             super.onCastDeviceDetected(info);
-                            deviceAvailableParams = Arguments.createMap();
+                            WritableMap deviceAvailableParams = Arguments.createMap();
                             Log.e(REACT_CLASS, "detecting devices " + info.getName());
                             deviceAvailableParams.putBoolean("device_available", true);
                             emitMessageToRN(getReactApplicationContext(), DEVICE_AVAILABLE, deviceAvailableParams);
@@ -320,7 +316,7 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
                         @Override
                         public void onDeviceSelected(CastDevice device, RouteInfo routeInfo) {
                             super.onDeviceSelected(device, routeInfo);
-                            emitMessageToRN(getReactApplicationContext(), DEVICE_CONNECTED, deviceAvailableParams);
+                            // emitMessageToRN(getReactApplicationContext(), DEVICE_CONNECTED, deviceAvailableParams);
                         }
 
 
@@ -336,7 +332,7 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
 
                         @Override
                         public void onCastAvailabilityChanged(boolean castPresent) {
-                            deviceAvailableParams = Arguments.createMap();
+                            WritableMap deviceAvailableParams = Arguments.createMap();
                             Log.e(REACT_CLASS, "onCastAvailabilityChanged: exists? " + Boolean.toString(castPresent));
                             deviceAvailableParams.putBoolean("device_available", castPresent);
                             emitMessageToRN(getReactApplicationContext(), DEVICE_AVAILABLE, deviceAvailableParams);
@@ -418,7 +414,7 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
                         @Override
                         public void onCastDeviceDetected(RouteInfo info) {
                             super.onCastDeviceDetected(info);
-                            deviceAvailableParams = Arguments.createMap();
+                            WritableMap deviceAvailableParams = Arguments.createMap();
                             Log.e(REACT_CLASS, "detecting devices " + info.getName());
                             deviceAvailableParams.putBoolean("device_available", true);
                             emitMessageToRN(getReactApplicationContext(), DEVICE_AVAILABLE, deviceAvailableParams);
@@ -433,7 +429,7 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
                         @Override
                         public void onMessageReceived(CastDevice castDevice, String namespace, String message) {
                             super.onMessageReceived(castDevice,namespace, message);
-                            deviceAvailableParams = Arguments.createMap();
+                            WritableMap deviceAvailableParams = Arguments.createMap();
                             Log.e(REACT_CLASS, "Message received " + message);
                             deviceAvailableParams.putString("cast_namespace_message", message);
                             emitMessageToRN(getReactApplicationContext(), MESSAGE_RECEIVED, deviceAvailableParams);
@@ -447,7 +443,7 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
                         @Override
                         public void onCastAvailabilityChanged(boolean castPresent) {
                             super.onCastAvailabilityChanged(castPresent);
-                            deviceAvailableParams = Arguments.createMap();
+                            WritableMap deviceAvailableParams = Arguments.createMap();
                             Log.e(REACT_CLASS, "onCastAvailabilityChanged: exists? " + Boolean.toString(castPresent));
                             deviceAvailableParams.putBoolean("device_available", castPresent);
                             emitMessageToRN(getReactApplicationContext(), DEVICE_CHANGED, deviceAvailableParams);
