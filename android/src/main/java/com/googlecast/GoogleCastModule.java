@@ -1,7 +1,9 @@
 package com.googlecast;
 
 import android.support.annotation.Nullable;
+import android.support.v7.media.MediaRouteSelector;
 import android.support.v7.media.MediaRouter;
+import android.support.v7.media.MediaRouter.RouteInfo;
 import android.util.Log;
 
 import com.facebook.react.bridge.Arguments;
@@ -19,9 +21,14 @@ import com.facebook.react.modules.core.DeviceEventManagerModule;
 import com.facebook.react.uimanager.IllegalViewOperationException;
 import com.google.android.gms.cast.ApplicationMetadata;
 import com.google.android.gms.cast.CastDevice;
+import com.google.android.gms.cast.CastMediaControlIntent;
 import com.google.android.gms.cast.MediaInfo;
+import com.google.android.gms.common.api.Status;
 import com.google.android.libraries.cast.companionlibrary.cast.CastConfiguration;
+import com.google.android.libraries.cast.companionlibrary.cast.DataCastManager;
 import com.google.android.libraries.cast.companionlibrary.cast.VideoCastManager;
+import com.google.android.libraries.cast.companionlibrary.cast.callbacks.DataCastConsumer;
+import com.google.android.libraries.cast.companionlibrary.cast.callbacks.DataCastConsumerImpl;
 import com.google.android.libraries.cast.companionlibrary.cast.callbacks.VideoCastConsumer;
 import com.google.android.libraries.cast.companionlibrary.cast.callbacks.VideoCastConsumerImpl;
 import com.google.android.libraries.cast.companionlibrary.cast.exceptions.CastException;
@@ -36,18 +43,51 @@ import java.util.Map;
  */
 public class GoogleCastModule extends ReactContextBaseJavaModule implements LifecycleEventListener {
     private VideoCastManager mCastManager;
+    private DataCastManager mDataCastManager;
     private VideoCastConsumer mCastConsumer;
-    Map<String, MediaRouter.RouteInfo> currentDevices = new HashMap<>();
+    private DataCastConsumer mDataCastConsumer;
+    private String mDefaultNamespace = "urn:x-cast:com.google.cast.sample.helloworld";
+    Map<String, RouteInfo> currentDevices = new HashMap<>();
     private WritableMap deviceAvailableParams;
+    private CastDevice mSelectedDevice;
+    private MediaRouter mMediaRouter;
+    private MediaRouteSelector mMediaRouteSelector;
+    private MediaRouter.Callback mMediaRouterCallback = new MediaRouter.Callback() {
 
+        @Override
+        public void onRouteChanged(MediaRouter router, RouteInfo route) {
+            super.onRouteChanged(router, route);
+            Log.d(REACT_CLASS, "onRouteChanged");
+            if(isRouteAvailable(router)){
+                onRouteAdded(router, route);
+            };
+        }
+        @Override
+        public void onRouteAdded(MediaRouter router, RouteInfo routeInfo) {
+            if (!router.getDefaultRoute().equals(routeInfo)) {
+                if(currentDevices.get(routeInfo.getId()) == null)
+                    mDataCastManager.onCastDeviceDetected(routeInfo);
+            }
+        }
+
+        private boolean isRouteAvailable(MediaRouter router) {
+            if (mDataCastManager == null)
+                mDataCastManager = DataCastManager.getInstance();
+
+            return router.isRouteAvailable(mDataCastManager.getMediaRouteSelector(),
+                MediaRouter.AVAILABILITY_FLAG_IGNORE_DEFAULT_ROUTE
+                    | MediaRouter.AVAILABILITY_FLAG_REQUIRE_MATCH);
+        }
+    };
 
     @VisibleForTesting
     public static final String REACT_CLASS = "GoogleCastModule";
-
     private static final String DEVICE_CHANGED = "GoogleCast:DeviceListChanged";
     private static final String DEVICE_AVAILABLE = "GoogleCast:DeviceAvailable";
     private static final String DEVICE_CONNECTED = "GoogleCast:DeviceConnected";
+    private static final String DEVICE_DISCONNECTED = "GoogleCast:DeviceDisconnected";
     private static final String MEDIA_LOADED = "GoogleCast:MediaLoaded";
+    private static final String MESSAGE_RECEIVED = "GoogleCast:MessageReceived";
 
     public GoogleCastModule(ReactApplicationContext reactContext) {
         super(reactContext);
@@ -65,7 +105,9 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
         constants.put("DEVICE_CHANGED", DEVICE_CHANGED);
         constants.put("DEVICE_AVAILABLE", DEVICE_AVAILABLE);
         constants.put("DEVICE_CONNECTED", DEVICE_CONNECTED);
+        constants.put("DEVICE_DISCONNECTED", DEVICE_DISCONNECTED);
         constants.put("MEDIA_LOADED", MEDIA_LOADED);
+        constants.put("MESSAGE_RECEIVED", MESSAGE_RECEIVED);
         return constants;
     }
 
@@ -75,18 +117,34 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
                 .emit(eventName, params);
     }
 
-    private void addDevice(MediaRouter.RouteInfo info) {
+    private void addDevice(RouteInfo info) {
         currentDevices.put(info.getId(), info);
     }
 
-    private void removeDevice(MediaRouter.RouteInfo info) {
+    private void removeDevice(RouteInfo info) {
         currentDevices.remove(info.getId());
     }
 
     @ReactMethod
     public void stopScan() {
         Log.e(REACT_CLASS, "Stopping Scan");
-        mCastManager.decrementUiCounter();
+        UiThreadUtil.runOnUiThread(new Runnable() {
+            public void run() {
+                if(mCastManager != null) {
+                    mCastManager.decrementUiCounter();
+                    mCastManager.stopCastDiscovery();
+                    mCastManager.removeVideoCastConsumer(mCastConsumer);
+                }
+                if(mDataCastManager != null) {
+                    mDataCastManager.decrementUiCounter();
+                    mDataCastManager.stopCastDiscovery();
+                    mDataCastManager.removeDataCastConsumer(mDataCastConsumer);
+
+                }
+                if (mMediaRouter != null)
+                    mMediaRouter.removeCallback(mMediaRouterCallback);
+            }
+        });
     }
 
     @ReactMethod
@@ -95,7 +153,7 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
         WritableMap singleDevice = Arguments.createMap();
         try {
             Log.e(REACT_CLASS, "devices size " + currentDevices.size());
-            for (MediaRouter.RouteInfo existingChromecasts : currentDevices.values()) {
+            for (RouteInfo existingChromecasts : currentDevices.values()) {
                 singleDevice.putString("id", existingChromecasts.getId());
                 singleDevice.putString("name", existingChromecasts.getName());
                 devicesList.pushMap(singleDevice);
@@ -133,9 +191,12 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
         Log.e(REACT_CLASS, "received deviceName " + deviceId);
         try {
             Log.e(REACT_CLASS, "devices size " + currentDevices.size());
-            MediaRouter.RouteInfo info = currentDevices.get(deviceId);
+            RouteInfo info = currentDevices.get(deviceId);
             CastDevice device = CastDevice.getFromBundle(info.getExtras());
-            mCastManager.onDeviceSelected(device, info);
+            if(mCastManager != null)
+                mCastManager.onDeviceSelected(device, info);
+            if(mDataCastManager != null)
+                mDataCastManager.onDeviceSelected(device, info);
         } catch (IllegalViewOperationException e) {
             e.printStackTrace();
         }
@@ -146,10 +207,23 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
         UiThreadUtil.runOnUiThread(new Runnable() {
             public void run() {
                 try {
-                    mCastManager.stopApplication();
-                    mCastManager.disconnect();
+                    if (mCastManager !=null) {
+                        mCastManager.stopApplication();
+                        mCastManager.disconnectDevice(false, false, false);
+
+                    }
+                    if (mDataCastManager !=null) {
+                        mDataCastManager.stopApplication();
+                        mDataCastManager.disconnect();
+
+                    }
                 } catch (TransientNetworkDisconnectionException | NoConnectionException e) {
                     e.printStackTrace();
+                }
+                finally {
+                    currentDevices.clear();
+                    mCastManager =  null;
+                    mDataCastManager = null;
                 }
             }
         });
@@ -158,12 +232,14 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
     @ReactMethod
     public void togglePauseCast() {
         try {
-            if (mCastManager.isRemoteMediaPaused()) {
-                mCastManager.play();
-            } else {
-                mCastManager.pause();
+            if (mCastManager != null)
+                if (mCastManager.isRemoteMediaPaused()) {
+                    mCastManager.play();
+                } else {
+                    mCastManager.pause();
+                }
             }
-        } catch (CastException | TransientNetworkDisconnectionException | NoConnectionException e) {
+         catch (CastException | TransientNetworkDisconnectionException | NoConnectionException e) {
             e.printStackTrace();
         }
     }
@@ -193,14 +269,19 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
 
 
     @ReactMethod
-    public void startScan() {
+    public void startScanForVideoCast() {
         Log.e(REACT_CLASS, "start scan Chromecast ");
         if (mCastManager != null) {
             mCastManager = VideoCastManager.getInstance();
-            mCastManager.incrementUiCounter();
+            UiThreadUtil.runOnUiThread(new Runnable() {
+                public void run() {
+                    mCastManager.incrementUiCounter();
+                    mCastManager.startCastDiscovery();
+                }
+            });
             Log.e(REACT_CLASS, "Chromecast Initialized by getting instance");
         } else {
-            final CastConfiguration options = GoogleCastService.getCastConfig();
+            final CastConfiguration options = GoogleCastService.getCastConfig(CastMediaControlIntent.DEFAULT_MEDIA_RECEIVER_APPLICATION_ID);
             UiThreadUtil.runOnUiThread(new Runnable() {
                 public void run() {
                     VideoCastManager.initialize(getCurrentActivity(), options);
@@ -221,13 +302,13 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
                         }
 
                         @Override
-                        public void onRouteRemoved(MediaRouter.RouteInfo info) {
+                        public void onRouteRemoved(RouteInfo info) {
                             super.onRouteRemoved(info);
                             removeDevice(info);
                         }
 
                         @Override
-                        public void onCastDeviceDetected(MediaRouter.RouteInfo info) {
+                        public void onCastDeviceDetected(RouteInfo info) {
                             super.onCastDeviceDetected(info);
                             deviceAvailableParams = Arguments.createMap();
                             Log.e(REACT_CLASS, "detecting devices " + info.getName());
@@ -235,6 +316,13 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
                             emitMessageToRN(getReactApplicationContext(), DEVICE_AVAILABLE, deviceAvailableParams);
                             addDevice(info);
                         }
+
+                        @Override
+                        public void onDeviceSelected(CastDevice device, RouteInfo routeInfo) {
+                            super.onDeviceSelected(device, routeInfo);
+                            emitMessageToRN(getReactApplicationContext(), DEVICE_CONNECTED, deviceAvailableParams);
+                        }
+
 
                         @Override
                         public void onApplicationConnectionFailed(int errorCode) {
@@ -257,9 +345,130 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
                     };
                     mCastManager.addVideoCastConsumer(mCastConsumer);
                     mCastManager.incrementUiCounter();
+                    mCastManager.startCastDiscovery();
+                    Log.e(REACT_CLASS, "Video Chromecast Initialized for the first time!");
+                }
+            });
+        }
+    }
+
+    @ReactMethod
+    public void startScan(final String applicationId) {
+        Log.e(REACT_CLASS, "start scan Chromecast ");
+        if (mDataCastManager != null) {
+            mDataCastManager = DataCastManager.getInstance();
+            UiThreadUtil.runOnUiThread(new Runnable() {
+                public void run() {
+                    mDataCastManager.incrementUiCounter();
+                    mDataCastManager.startCastDiscovery();
+                    mMediaRouter.addCallback(mDataCastManager.getMediaRouteSelector(), mMediaRouterCallback,
+                            MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY);
+
+                }
+            });
+            Log.e(REACT_CLASS, "Chromecast Initialized by getting instance");
+        } else {
+            final CastConfiguration options = GoogleCastService.getCastConfig(applicationId, mDefaultNamespace);
+            UiThreadUtil.runOnUiThread(new Runnable() {
+                public void run() {
+                    DataCastManager.initialize(getCurrentActivity() , options);
+                    mDataCastManager = DataCastManager.getInstance();
+                    mMediaRouter = MediaRouter.getInstance(getCurrentActivity());
+                    mMediaRouter.addCallback(mDataCastManager.getMediaRouteSelector(), mMediaRouterCallback,
+                            MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY);
+                    mDataCastConsumer = new DataCastConsumerImpl() {
+                        @Override
+                        public void onConnected() {
+                            super.onConnected();
+                            Log.e(REACT_CLASS, "I am connected yey");
+                        }
+
+                        @Override
+                        public void onDisconnected() {
+                            super.onDisconnected();
+                            Log.e(REACT_CLASS, "I am didconnected noooo :(");
+                            emitMessageToRN(getReactApplicationContext(), DEVICE_DISCONNECTED, null);
+                        }
+
+                        @Override
+                        public void onApplicationConnected(ApplicationMetadata appMetadata, String applicationStatus, String sessionId, boolean wasLaunched) {
+                            super.onApplicationConnected(appMetadata, applicationStatus, sessionId, wasLaunched);;
+                            Log.e(REACT_CLASS, "I am connected dudeeeeee ");
+                            emitMessageToRN(getReactApplicationContext(), DEVICE_CONNECTED, null);
+                        }
+
+                        @Override
+                        public void onApplicationStatusChanged(String appStatus) {
+                            super.onApplicationStatusChanged(appStatus);
+                        }
+
+                        @Override
+                        public void onApplicationDisconnected(int errorCode) {
+                            super.onApplicationDisconnected(errorCode);
+                            Log.e(REACT_CLASS, "I am disconnected :( :( ");
+                            emitMessageToRN(getReactApplicationContext(), DEVICE_DISCONNECTED, null);
+                        }
+
+                        @Override
+                        public void onRouteRemoved(RouteInfo info) {
+                            super.onRouteRemoved(info);
+                            removeDevice(info);
+                        }
+
+                        @Override
+                        public void onCastDeviceDetected(RouteInfo info) {
+                            super.onCastDeviceDetected(info);
+                            deviceAvailableParams = Arguments.createMap();
+                            Log.e(REACT_CLASS, "detecting devices " + info.getName());
+                            deviceAvailableParams.putBoolean("device_available", true);
+                            emitMessageToRN(getReactApplicationContext(), DEVICE_AVAILABLE, deviceAvailableParams);
+                            addDevice(info);
+                        }
+
+                        @Override
+                        public void onApplicationConnectionFailed(int errorCode) {
+                            Log.e(REACT_CLASS, "I failed :( with error code ");
+                        }
+
+                        @Override
+                        public void onMessageReceived(CastDevice castDevice, String namespace, String message) {
+                            super.onMessageReceived(castDevice,namespace, message);
+                            deviceAvailableParams = Arguments.createMap();
+                            Log.e(REACT_CLASS, "Message received " + message);
+                            deviceAvailableParams.putString("cast_namespace_message", message);
+                            emitMessageToRN(getReactApplicationContext(), MESSAGE_RECEIVED, deviceAvailableParams);
+                        }
+
+                        @Override
+                        public void onMessageSendFailed(Status status) {
+                            Log.e(REACT_CLASS, "Message sending failed :( with error code" +  status.getStatusMessage());
+                        }
+
+                        @Override
+                        public void onCastAvailabilityChanged(boolean castPresent) {
+                            super.onCastAvailabilityChanged(castPresent);
+                            deviceAvailableParams = Arguments.createMap();
+                            Log.e(REACT_CLASS, "onCastAvailabilityChanged: exists? " + Boolean.toString(castPresent));
+                            deviceAvailableParams.putBoolean("device_available", castPresent);
+                            emitMessageToRN(getReactApplicationContext(), DEVICE_CHANGED, deviceAvailableParams);
+                        }
+                    };
+                    mDataCastManager.addDataCastConsumer(mDataCastConsumer);
+                    mDataCastManager.incrementUiCounter();
+                    mDataCastManager.startCastDiscovery();
                     Log.e(REACT_CLASS, "Chromecast Initialized for the first time!");
                 }
             });
+        }
+    }
+
+    @ReactMethod
+    public void sendTextMessage(String content) {
+        try {
+            Log.e(REACT_CLASS, "Showing application");
+            mDataCastManager.sendDataMessage(content, mDefaultNamespace);
+        } catch(Exception exception) {
+            exception.printStackTrace();
         }
     }
 
@@ -269,11 +478,10 @@ public class GoogleCastModule extends ReactContextBaseJavaModule implements Life
 
     @Override
     public void onHostPause() {
-
     }
 
     @Override
     public void onHostDestroy() {
-
+        disconnect();
     }
 }

@@ -6,6 +6,9 @@ export default {
   startScan: function (googleCastReceiverID:string) {
     GoogleCast.startScan(googleCastReceiverID);
   },
+  startScanForVideoCast: function (googleCastReceiverID:string) {
+    GoogleCast.startScanForVideoCast(googleCastReceiverID);
+  },
   stopScan: function () {
     GoogleCast.stopScan();
   },
@@ -39,5 +42,7 @@ export default {
   DEVICE_CHANGED: GoogleCast.DEVICE_CHANGED,
   DEVICE_AVAILABLE: GoogleCast.DEVICE_AVAILABLE,
   DEVICE_CONNECTED: GoogleCast.DEVICE_CONNECTED,
+  DEVICE_DISCONNECTED: GoogleCast.DEVICE_DISCONNECTED,
   MEDIA_LOADED: GoogleCast.MEDIA_LOADED,
+  MESSAGE_RECEIVED: GoogleCast.MESSAGE_RECEIVED,
 };

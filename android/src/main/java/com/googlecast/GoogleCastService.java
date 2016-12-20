@@ -2,7 +2,6 @@ package com.googlecast;
 
 import android.net.Uri;
 
-import com.google.android.gms.cast.CastMediaControlIntent;
 import com.google.android.gms.cast.MediaInfo;
 import com.google.android.gms.cast.MediaMetadata;
 import com.google.android.gms.common.images.WebImage;
@@ -26,15 +25,26 @@ public class GoogleCastService {
         return mediaInfo;
     }
 
-    public static CastConfiguration getCastConfig(){
-        CastConfiguration options = new CastConfiguration.Builder(CastMediaControlIntent.DEFAULT_MEDIA_RECEIVER_APPLICATION_ID)
+    public static CastConfiguration getCastConfig(String applicationId){
+        CastConfiguration options = new CastConfiguration.Builder(applicationId)
                 .enableAutoReconnect()
                 .enableNotification()
                 .addNotificationAction(CastConfiguration.NOTIFICATION_ACTION_SKIP_PREVIOUS, false)
                 .addNotificationAction(CastConfiguration.NOTIFICATION_ACTION_SKIP_NEXT, false)
                 .addNotificationAction(CastConfiguration.NOTIFICATION_ACTION_PLAY_PAUSE, true)
                 .addNotificationAction(CastConfiguration.NOTIFICATION_ACTION_FORWARD, false)
-                .addNotificationAction(CastConfiguration.NOTIFICATION_ACTION_DISCONNECT, true).setForwardStep(10)
+                .addNotificationAction(CastConfiguration.NOTIFICATION_ACTION_DISCONNECT, true)
+                .setForwardStep(10)
+                .build();
+        return options;
+    }
+
+    public static CastConfiguration getCastConfig(String applicationId, String namespace){
+        CastConfiguration options = new CastConfiguration.Builder(applicationId)
+                .enableAutoReconnect()
+                .addNamespace(namespace)
+                .enableDebug()
+                .enableWifiReconnection()
                 .build();
         return options;
     }
