@@ -43,7 +43,6 @@ public class GoogleCastService {
         CastConfiguration options = new CastConfiguration.Builder(applicationId)
                 .enableAutoReconnect()
                 .addNamespace(namespace)
-                .enableDebug()
                 .enableWifiReconnection()
                 .build();
         return options;
